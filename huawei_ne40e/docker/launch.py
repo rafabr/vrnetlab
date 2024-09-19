@@ -58,21 +58,20 @@ class NE40_vm(vrnetlab.VM):
 
         (ridx, match, res) = self.tn.expect([b'<HUAWEI>'],1)
 
-        if match:  # got a match!
-            if ridx == 0:
-                # run main config!
-                self.logger.info("Running bootstrap_config()")
-                self.bootstrap_config()
-                self.startup_config()
-                time.sleep(1)
-                # close telnet connection
-                self.tn.close()
-                # startup time?
-                startup_time = datetime.datetime.now() - self.start_time
-                self.logger.info("Startup complete in: %s" % startup_time)
-                # mark as running
-                self.running = True
-                return
+        if match and ridx == 0:  # got a match!
+            # run main config!
+            self.logger.info("Running bootstrap_config()")
+            self.bootstrap_config()
+            self.startup_config()
+            time.sleep(1)
+            # close telnet connection
+            self.tn.close()
+            # startup time?
+            startup_time = datetime.datetime.now() - self.start_time
+            self.logger.info("Startup complete in: %s" % startup_time)
+            # mark as running
+            self.running = True
+            return
 
         time.sleep(5)
 
@@ -100,9 +99,9 @@ class NE40_vm(vrnetlab.VM):
         self.wait_write(cmd="quit", wait="]")
         self.wait_write(cmd="interface GigabitEthernet 0/0/0", wait="]")
         self.wait_write(cmd="ip binding vpn-instance __MGMT_VPN__", wait="]")
-        self.wait_write(cmd=f"ip address 10.0.0.15 24", wait="]")
+        self.wait_write(cmd="ip address 10.0.0.15 24", wait="]")
         self.wait_write(cmd="quit", wait="]")
-        self.wait_write(cmd=f"ip route-static vpn-instance __MGMT_VPN__ 0.0.0.0 0 10.0.0.2", wait="]")
+        self.wait_write(cmd="ip route-static vpn-instance __MGMT_VPN__ 0.0.0.0 0 10.0.0.2", wait="]")
 
         self.wait_write(cmd="undo user-security-policy enable", wait="]")
 
@@ -130,10 +129,9 @@ class NE40_vm(vrnetlab.VM):
         # Error: The system is busy in building configuration. Please wait for a moment...
         while True:
             self.wait_write(cmd="commit", wait=None)
-            (idx, match, res) = self.tn.expect([b'\[~'], 1)
-            if match:
-                if idx == 0:
-                    break
+            (idx, match, res) = self.tn.expect([rb'\[~'], 1)
+            if match and idx == 0:
+                break
             time.sleep(5)
 
         self.wait_write(cmd="return", wait=None)
