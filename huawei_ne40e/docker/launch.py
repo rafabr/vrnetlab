@@ -195,24 +195,8 @@ class NE40_vm(vrnetlab.VM):
 
     def gen_mgmt(self):
         """Generate qemu args for the mgmt interface(s)"""
-        res = []
-        # mgmt interface is special - we use qemu user mode network
-        res.append("-device")
-        mac = (
-            "c0:00:01:00:ca:fe"
-            if getattr(self, "_static_mgmt_mac", False)
-            else vrnetlab.gen_mac(0)
-        )
-        res.append(self.nic_type + f",netdev=p00,mac={mac}")
-        res.append("-netdev")
-        res.append(
-            "user,id=p00,net=10.0.0.0/24,"
-            "hostfwd=tcp:0.0.0.0:22-10.0.0.15:22,"  # ssh
-            "hostfwd=udp:0.0.0.0:161-10.0.0.15:161,"  # snmp
-            "hostfwd=tcp:0.0.0.0:830-10.0.0.15:830,"  # netconf
-            "hostfwd=tcp:0.0.0.0:80-10.0.0.15:80,"  # http
-            "hostfwd=tcp:0.0.0.0:443-10.0.0.15:443,"  # https
-        )
+        # call parent function to generate the mgmt interface
+        res = super().gen_mgmt()
 
         # Creates required dummy interface
         res.append(f"-device virtio-net-pci,netdev=dummy,mac={vrnetlab.gen_mac(0)}")
