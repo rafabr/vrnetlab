@@ -110,6 +110,7 @@ class NE40_vm(vrnetlab.VM):
         self.wait_write(cmd="quit", wait="]")
         self.wait_write(cmd="quit", wait="]")
         self.wait_write(cmd="interface GigabitEthernet 0/0/0", wait="]")
+        self.wait_write(cmd="clear configuration this", wait="]")
         self.wait_write(cmd="ip binding vpn-instance __MGMT_VPN__", wait="]")
         self.wait_write(cmd="ip address 10.0.0.15 24", wait="]")
         self.wait_write(cmd="quit", wait="]")
@@ -120,6 +121,7 @@ class NE40_vm(vrnetlab.VM):
         self.wait_write(cmd="undo user-security-policy enable", wait="]")
 
         self.wait_write(cmd="aaa", wait="]")
+        self.wait_write(cmd=f"undo local-user {self.username}", wait="]")
         self.wait_write(
             cmd=f"local-user {self.username} password irreversible-cipher {self.password}",
             wait="]",
@@ -135,6 +137,7 @@ class NE40_vm(vrnetlab.VM):
         self.wait_write(cmd="authentication-mode aaa", wait="]")
         self.wait_write(cmd="protocol inbound ssh", wait="]")
         self.wait_write(cmd="quit", wait="]")
+        self.wait_write(cmd=f"undo ssh user {self.username}", wait="]")
         self.wait_write(
             cmd=f"ssh user {self.username} authentication-type password ", wait="]"
         )
@@ -156,20 +159,23 @@ class NE40_vm(vrnetlab.VM):
             time.sleep(5)
 
         self.wait_write(cmd="return", wait=None)
+        self.wait_write(cmd="save", wait=">")
+        self.wait_write(cmd="undo mmi-mode enable", wait=">")
 
     def startup_config(self):
         if not os.path.exists(STARTUP_CONFIG_FILE):
             self.logger.trace(f"Startup config file {STARTUP_CONFIG_FILE} not found")
-            self.wait_write(cmd="undo mmi-mode enable", wait=None)
             return
 
+        self.wait_write(cmd="mmi-mode enable", wait=None)
         self.wait_write(cmd="system-view", wait=None)
         self.wait_write(
             cmd=f"ssh user {self.username} sftp-directory cfcard:", wait="]"
         )
         self.wait_write(cmd="sftp server enable", wait="]")
         self.wait_write(cmd="commit", wait="]")
-        time.sleep(2)
+
+        time.sleep(5)
 
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -184,14 +190,12 @@ class NE40_vm(vrnetlab.VM):
         sftp_client.close()
         ssh_client.close()
 
-        self.wait_write(cmd=f"undo ssh user {self.username} sftp-directory", wait="]")
-        self.wait_write(cmd="undo sftp server enable", wait="]")
-        self.wait_write(cmd="commit", wait="]")
-
-        self.wait_write(cmd="load configuration file containerlab.cfg merge", wait="]")
-        self.wait_write(cmd="commit", wait="]")
         self.wait_write(cmd="return", wait="]")
-        self.wait_write(cmd="undo mmi-mode enable", wait=">")
+        self.wait_write(cmd="startup saved-configuration containerlab.cfg", wait=">")
+        self.wait_write(cmd="reboot fast", wait=">")
+        self.wait_write(cmd="reboot", wait="#")
+        self.wait_write(cmd="", wait="The current login time is")
+        self.bootstrap_config()
 
     def gen_mgmt(self):
         """Generate qemu args for the mgmt interface(s)"""
