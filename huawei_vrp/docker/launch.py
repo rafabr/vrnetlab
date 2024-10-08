@@ -39,14 +39,19 @@ def trace(self, message, *args, **kws):
 logging.Logger.trace = trace
 
 
-class NE40_vm(vrnetlab.VM):
+class VRP_vm(vrnetlab.VM):
     def __init__(self, username, password, hostname, conn_mode):
         disk_image = None
+        self.vm_type = "UNKNOWN"
         for e in sorted(os.listdir("/")):
             if not disk_image and re.search(".qcow2$", e):
                 disk_image = "/" + e
+                if "huawei_ne40e" in e:
+                    self.vm_type = "NE40E"
+                if "huawei_ce12800" in e:
+                    self.vm_type = "CE12800"
 
-        super(NE40_vm, self).__init__(
+        super(VRP_vm, self).__init__(
             username,
             password,
             disk_image=disk_image,
@@ -104,13 +109,23 @@ class NE40_vm(vrnetlab.VM):
         self.wait_write(cmd="mmi-mode enable", wait=None)
         self.wait_write(cmd="system-view", wait=">")
         self.wait_write(cmd=f"sysname {self.hostname}", wait="]")
-
         self.wait_write(cmd="ip vpn-instance __MGMT_VPN__", wait="]")
         self.wait_write(cmd="ipv4-family", wait="]")
         self.wait_write(cmd="quit", wait="]")
         self.wait_write(cmd="quit", wait="]")
-        self.wait_write(cmd="interface GigabitEthernet 0/0/0", wait="]")
+
+        if self.vm_type == "CE12800":
+            mgmt_interface = "MEth"
+            self.wait_write(cmd="aaa", wait="]")
+            self.wait_write(cmd="undo local-user policy security-enhance", wait="]")
+            self.wait_write(cmd="quit", wait="]")
+        if self.vm_type == "NE40E":
+            mgmt_interface = "GigabitEthernet"
+            self.wait_write(cmd="undo user-security-policy enable", wait="]")
+
+        self.wait_write(cmd=f"interface {mgmt_interface} 0/0/0", wait="]")
         self.wait_write(cmd="clear configuration this", wait="]")
+        self.wait_write(cmd="undo shutdown", wait="]")
         self.wait_write(cmd="ip binding vpn-instance __MGMT_VPN__", wait="]")
         self.wait_write(cmd="ip address 10.0.0.15 24", wait="]")
         self.wait_write(cmd="quit", wait="]")
@@ -118,7 +133,6 @@ class NE40_vm(vrnetlab.VM):
             cmd="ip route-static vpn-instance __MGMT_VPN__ 0.0.0.0 0 10.0.0.2", wait="]"
         )
 
-        self.wait_write(cmd="undo user-security-policy enable", wait="]")
 
         self.wait_write(cmd="aaa", wait="]")
         self.wait_write(cmd=f"undo local-user {self.username}", wait="]")
@@ -167,6 +181,25 @@ class NE40_vm(vrnetlab.VM):
             self.logger.trace(f"Startup config file {STARTUP_CONFIG_FILE} not found")
             return
 
+        if self.vm_type == "CE12800":
+            with open(STARTUP_CONFIG_FILE, "r+") as file:
+                cfg = file.read()
+                modified = False
+
+                if "device board 1 " not in cfg:
+                    cfg = "device board 1 board-type CE-LPUE\n" + cfg
+                    modified = True
+
+                if "interface NULL0" not in cfg:
+                    cfg = cfg + "\ninterface NULL0"
+                    modified = True
+
+                if modified:
+                    file.seek(0)
+                    file.write(cfg)
+                    file.truncate()
+
+
         self.wait_write(cmd="mmi-mode enable", wait=None)
         self.wait_write(cmd="system-view", wait=None)
         self.wait_write(
@@ -209,10 +242,10 @@ class NE40_vm(vrnetlab.VM):
         return res
 
 
-class NE40(vrnetlab.VR):
+class VRP(vrnetlab.VR):
     def __init__(self, hostname, username, password, conn_mode):
-        super(NE40, self).__init__(username, password)
-        self.vms = [NE40_vm(username, password, hostname, conn_mode)]
+        super(VRP, self).__init__(username, password)
+        self.vms = [VRP_vm(username, password, hostname, conn_mode)]
 
 
 if __name__ == "__main__":
@@ -222,7 +255,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--trace", action="store_true", help="enable trace level logging"
     )
-    parser.add_argument("--hostname", default="vr-ne40", help="Router hostname")
+    parser.add_argument("--hostname", default="vr-VRP", help="Router hostname")
     parser.add_argument("--username", default="vrnetlab", help="Username")
     parser.add_argument("--password", default="VR-netlab9", help="Password")
     parser.add_argument(
@@ -242,7 +275,7 @@ if __name__ == "__main__":
     if args.trace:
         logger.setLevel(1)
 
-    vr = NE40(
+    vr = VRP(
         args.hostname, args.username, args.password, conn_mode=args.connection_mode
     )
     vr.start()
