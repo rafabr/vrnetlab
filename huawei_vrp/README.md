@@ -13,3 +13,15 @@ Build the image with:
 ```
 make
 ```
+
+The resulting image will be tagged as:
+
+```
+vrnetlab/huawei_vrp:<platform>-<version>
+```
+
+for example, if the qcow2 image is named `huawei_ne40e-8.180.qcow2`, then the image will be tagged as:
+
+```
+vrnetlab/huawei_vrp:ne40e-8.180
+```
