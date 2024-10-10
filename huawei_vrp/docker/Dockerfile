@@ -10,7 +10,6 @@ RUN apt-get update -qy \
    qemu-kvm \
    qemu-utils \
    telnet \
-   python3-paramiko \
    && rm -rf /var/lib/apt/lists/*
 
 ARG IMAGE

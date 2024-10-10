@@ -8,7 +8,6 @@ import signal
 import sys
 import time
 
-import paramiko
 import vrnetlab
 
 STARTUP_CONFIG_FILE = "/config/startup-config.cfg"
@@ -79,8 +78,8 @@ class VRP_vm(vrnetlab.VM):
         if match and ridx == 0:  # got a match!
             # run main config!
             self.logger.info("Running bootstrap_config()")
-            self.bootstrap_config()
             self.startup_config()
+            self.bootstrap_config()
             time.sleep(1)
             # close telnet connection
             self.tn.close()
@@ -104,28 +103,27 @@ class VRP_vm(vrnetlab.VM):
 
         return
 
-    def bootstrap_config(self):
-        """Do the actual bootstrap config"""
+    def bootstrap_mgmt_interface(self):
         self.wait_write(cmd="mmi-mode enable", wait=None)
         self.wait_write(cmd="system-view", wait=">")
-        self.wait_write(cmd=f"sysname {self.hostname}", wait="]")
         self.wait_write(cmd="ip vpn-instance __MGMT_VPN__", wait="]")
         self.wait_write(cmd="ipv4-family", wait="]")
         self.wait_write(cmd="quit", wait="]")
         self.wait_write(cmd="quit", wait="]")
-
         if self.vm_type == "CE12800":
             mgmt_interface = "MEth"
-            self.wait_write(cmd="aaa", wait="]")
-            self.wait_write(cmd="undo local-user policy security-enhance", wait="]")
-            self.wait_write(cmd="quit", wait="]")
         if self.vm_type == "NE40E":
             mgmt_interface = "GigabitEthernet"
-            self.wait_write(cmd="undo user-security-policy enable", wait="]")
-
         self.wait_write(cmd=f"interface {mgmt_interface} 0/0/0", wait="]")
-        self.wait_write(cmd="clear configuration this", wait="]")
-        self.wait_write(cmd="undo shutdown", wait="]")
+        # Error: The system is busy in building configuration. Please wait for a moment...
+        while True:
+            self.wait_write(cmd="clear configuration this", wait=None)
+            (idx, match, res) = self.tn.expect([rb"Error"], 1)
+            if match and idx == 0:
+                time.sleep(5)
+            else:
+                break
+        self.wait_write(cmd="undo shutdown", wait=None)
         self.wait_write(cmd="ip binding vpn-instance __MGMT_VPN__", wait="]")
         self.wait_write(cmd="ip address 10.0.0.15 24", wait="]")
         self.wait_write(cmd="quit", wait="]")
@@ -133,6 +131,17 @@ class VRP_vm(vrnetlab.VM):
             cmd="ip route-static vpn-instance __MGMT_VPN__ 0.0.0.0 0 10.0.0.2", wait="]"
         )
 
+    def bootstrap_config(self):
+        """Do the actual bootstrap config"""
+        self.bootstrap_mgmt_interface()
+        self.wait_write(cmd=f"sysname {self.hostname}", wait="]")
+
+        if self.vm_type == "CE12800":
+            self.wait_write(cmd="aaa", wait="]")
+            self.wait_write(cmd="undo local-user policy security-enhance", wait="]")
+            self.wait_write(cmd="quit", wait="]")
+        if self.vm_type == "NE40E":
+            self.wait_write(cmd="undo user-security-policy enable", wait="]")
 
         self.wait_write(cmd="aaa", wait="]")
         self.wait_write(cmd=f"undo local-user {self.username}", wait="]")
@@ -164,15 +173,8 @@ class VRP_vm(vrnetlab.VM):
         self.wait_write(cmd="protocol inbound ssh port 830", wait="]")
         self.wait_write(cmd="quit", wait="]")
 
-        # Error: The system is busy in building configuration. Please wait for a moment...
-        while True:
-            self.wait_write(cmd="commit", wait=None)
-            (idx, match, res) = self.tn.expect([rb"\[~"], 1)
-            if match and idx == 0:
-                break
-            time.sleep(5)
-
-        self.wait_write(cmd="return", wait=None)
+        self.wait_write(cmd="commit", wait="]")
+        self.wait_write(cmd="return", wait="]")
         self.wait_write(cmd="save", wait=">")
         self.wait_write(cmd="undo mmi-mode enable", wait=">")
 
@@ -180,6 +182,10 @@ class VRP_vm(vrnetlab.VM):
         if not os.path.exists(STARTUP_CONFIG_FILE):
             self.logger.trace(f"Startup config file {STARTUP_CONFIG_FILE} not found")
             return
+        
+
+        vrnetlab.run_command(["cp", STARTUP_CONFIG_FILE, "/tftpboot/containerlab.cfg"])
+
 
         if self.vm_type == "CE12800":
             with open(STARTUP_CONFIG_FILE, "r+") as file:
@@ -200,35 +206,18 @@ class VRP_vm(vrnetlab.VM):
                     file.truncate()
 
 
-        self.wait_write(cmd="mmi-mode enable", wait=None)
-        self.wait_write(cmd="system-view", wait=None)
-        self.wait_write(
-            cmd=f"ssh user {self.username} sftp-directory cfcard:", wait="]"
-        )
-        self.wait_write(cmd="sftp server enable", wait="]")
+        self.bootstrap_mgmt_interface()
         self.wait_write(cmd="commit", wait="]")
 
-        time.sleep(5)
 
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh_client.connect(
-            hostname="localhost", username=self.username, password=self.password
-        )
-        sftp_client = ssh_client.open_sftp()
-
-        sftp_client.put(STARTUP_CONFIG_FILE, "containerlab.cfg")
-        print(f"File '{STARTUP_CONFIG_FILE}' successfully transferred")
-
-        sftp_client.close()
-        ssh_client.close()
-
-        self.wait_write(cmd="return", wait="]")
+        self.wait_write(cmd=f"return", wait="]")
+        time.sleep(1)
+        self.wait_write(cmd=f"tftp 10.0.0.2 vpn-instance __MGMT_VPN__ get containerlab.cfg", wait=">")
         self.wait_write(cmd="startup saved-configuration containerlab.cfg", wait=">")
         self.wait_write(cmd="reboot fast", wait=">")
         self.wait_write(cmd="reboot", wait="#")
         self.wait_write(cmd="", wait="The current login time is")
-        self.bootstrap_config()
+        print(f"File '{STARTUP_CONFIG_FILE}' successfully loaded")
 
     def gen_mgmt(self):
         """Generate qemu args for the mgmt interface(s)"""
